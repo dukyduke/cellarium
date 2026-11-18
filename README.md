@@ -107,9 +107,17 @@ mcp_servers:
 ```
 
 Outils exposés : `cellar_summary`, `search_wines`, `get_wine`, `find_bottles`, `drinking_schedule`,
-`list_storages`, `get_history`, `list_wines_to_enrich`, `get_enrichment_guide`, `create_wine`,
-`update_wine_info`, `set_drinking_window`, `add_bottles`, `remove_bottles`, `move_bottle` ; prompt
-`enrich_wine` ; ressource `cellarium://guides/wine-enrichment`.
+`list_storages`, `get_history`, `list_wines_to_enrich`, `get_naming_conventions`, `get_enrichment_guide`,
+`create_wine`, `update_wine_info`, `set_drinking_window`, `add_wine_comment`, `add_bottles`, `remove_bottles`,
+`move_bottle` ; prompt `enrich_wine` ; ressource `cellarium://guides/wine-enrichment`.
+
+- **Nommage** : avant de créer un vin, l'IA consulte `get_naming_conventions`, qui analyse les noms déjà
+  présents dans la cave (formes « Nom - Cuvée », « Nom - Cuvée (domaine de) »…, désignations utilisées,
+  exemples les plus proches) pour en déduire la règle. `create_wine` refuse un doublon et signale un nom
+  qui s'écarte des habitudes de la cave.
+- **Commentaires signés** : tout commentaire écrit par une IA (sur la fiche, sur un achat, à la sortie d'une
+  bouteille) est préfixé `[IA date]` par le serveur et affiché avec un badge « IA » ; les notes existantes
+  ne sont jamais modifiées.
 
 Le **guide d'enrichissement** ([`cellarium/guides/wine-enrichment.md`](cellarium/guides/wine-enrichment.md),
 au format skill, aussi disponible dans [`skills/cellarium-wine-enrichment/`](skills/cellarium-wine-enrichment/SKILL.md))

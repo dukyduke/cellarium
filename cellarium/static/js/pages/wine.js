@@ -1,7 +1,7 @@
 // Wine sheet ("fiche vin") and new-wine form.
 import {
   api, canWrite, clear, confirmDialog, dialog, errorToast, field, fmtDate, fmtPrice, fmtVolume, fmtYear, formData, h,
-  icon, locationLabel, normalize, phaseBadge, state, t, toast, typeDot, typeInfo, typeLabel, typeSelect, windowText,
+  icon, locationLabel, normalize, phaseBadge, richText, state, t, toast, typeDot, typeInfo, typeLabel, typeSelect, windowText,
 } from '../core.js';
 import { outDialog } from './bottles.js';
 
@@ -122,7 +122,7 @@ export async function renderWine(id, query, el) {
     h('dt', t('wine.window')), windowCell);
 
   const texts = ['description', 'food_pairing', 'notes'].filter((k) => w[k]).map((k) =>
-    h('section.text-block', h('h3', t(`wine.${k}`), aiMark(meta, k)), h('p.pre', w[k])));
+    h('section.text-block', h('h3', t(`wine.${k}`), aiMark(meta, k)), h('p', richText(w[k]))));
   const aiSources = [...new Set(Object.values(meta).filter((m) => m.origin === 'ai').flatMap((m) => m.sources || []))];
   for (const v of vintages) for (const m of Object.values(v.meta || {})) if (m.origin === 'ai') aiSources.push(...(m.sources || []));
   const sources = [...new Set(aiSources)];
@@ -170,7 +170,7 @@ export async function renderWine(id, query, el) {
       h('td', { 'data-label': t('col.volume') }, fmtVolume(l.volume_cl)),
       h('td', { 'data-label': t('bottle.quantity') }, `${l.in_cellar} / ${l.quantity}`),
       h('td.num', { 'data-label': t('bottle.unit_price') }, fmtPrice(l.unit_price)),
-      h('td', { 'data-label': t('bottle.comment') }, l.comment || (l.supplier ? `${t('bottle.supplier')} : ${l.supplier}` : '')),
+      h('td', { 'data-label': t('bottle.comment') }, l.comment ? richText(l.comment) : (l.supplier ? `${t('bottle.supplier')} : ${l.supplier}` : '')),
       write ? h('td.actions',
         h('button.icon-btn', { type: 'button', title: t('action.edit'), 'aria-label': t('action.edit'), onclick: () => editLot(l) }, icon('edit')),
         h('button.icon-btn', {
@@ -222,7 +222,7 @@ export async function renderWine(id, query, el) {
   const out = w.bottles.filter((b) => b.status !== 'in_cellar');
   const tasted = out.length ? h('ul.list', out.map((b) => h('li.list-row',
     h('span.grow', h('strong', fmtYear(b.year)), ` · ${t(`out.${b.status}`)} · ${fmtDate(b.out_date)}`,
-      b.out_note ? h('small.block.note', b.out_note) : null)))) : null;
+      b.out_note ? h('small.block.note', richText(b.out_note)) : null)))) : null;
 
   async function addBottles() {
     const form = h('form', bottleFields(await storageOptions(), { year: current?.year ?? '' }));

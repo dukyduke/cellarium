@@ -46,7 +46,10 @@ breaking the data model, permissions, translations or the mobile layout. Archite
 5. **UI strings**: every label via `t('section.key')`, added to `cellarium/static/i18n/fr.json` **and** `en.json`.
    Build DOM with `h()` from `core.js`; call the API with `api()` (adds the CSRF header).
 6. **MCP**: new tool = function in `build_mcp` with `ctx: Context | None = None`, `with db(ctx, write=True)` for
-   writes; descriptive data writes use `origin="ai"`, require `sources`, `protect_user=True`. Update the tool list in
+   writes; descriptive data writes use `origin="ai"`, require `sources`, `protect_user=True`. Any free-text
+   comment written through MCP goes through `cellar.mark_ai_comment()` (`[IA date]` prefix, rendered as an
+   "IA" badge by `richText()` in `core.js`); new wine names follow the cellar's conventions
+   (`cellar.naming_conventions`, `cellar.naming_warnings`). Update the tool list in
    `tests/test_mcp.py::test_tools_listed`, in `README.md`, and the guide if behaviour changes.
 7. **Verify**: run `terminal(command=".venv/bin/python -m pytest -q")` and
    `terminal(command="for f in cellarium/static/js/*.js cellarium/static/js/pages/*.js; do node --check $f; done")`;

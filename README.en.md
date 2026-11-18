@@ -45,6 +45,8 @@ On first start the console prints a **setup code**: open the UI, enter it and cr
 
 ## AI integration (MCP)
 
+AI clients name new wines after the cellar's own conventions (`get_naming_conventions`, e.g. "Nom - Cuvée"),
+and every comment written by an AI is stored with an `[IA date]` marker shown as an "IA" badge.
 Create a token in *Settings › API & MCP tokens*, then point your MCP client (Streamable HTTP) at
 `https://your-host/mcp` with `Authorization: Bearer cel_…`. Read tokens cannot modify anything.
 The enrichment guide ([`cellarium/guides/wine-enrichment.md`](cellarium/guides/wine-enrichment.md)) is served

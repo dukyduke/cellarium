@@ -23,6 +23,7 @@ LOT_FIELDS = ("purchase_date", "volume_cl", "unit_price", "supplier", "comment")
 OUT_STATUSES = ("drunk", "gifted", "lost")
 PHASES = ("keep", "drink", "peak", "decline", "unknown")
 ORIGINS = ("user", "import", "ai")
+AI_COMMENT_RE = re.compile(r"^\[IA(?: [0-9-]{10})?\]")
 
 
 class CellarError(Exception):
@@ -153,6 +154,16 @@ def _record_movement(conn, kind: str, *, wine_id=None, bottle_id=None, count=1, 
         (date or today(), kind, reason, wine_id, bottle_id, count, label, year, from_loc, to_loc, note,
          getattr(conn, "actor", None)),
     )
+
+
+def mark_ai_comment(text: Any, date: str | None = None) -> str | None:
+    """Prefix a comment written by an AI with '[IA YYYY-MM-DD] ' (shown as an "AI" badge in the UI)."""
+    text = _clean_text(text)
+    if not text:
+        return None
+    if AI_COMMENT_RE.match(text):
+        return text
+    return f"[IA {date or today()}] {text}"
 
 
 # ---------------------------------------------------------------- types
@@ -424,6 +435,99 @@ def incomplete_wines(conn, limit: int = 20) -> list[dict]:
         if len(rows) >= limit:
             break
     return rows
+
+
+def append_wine_comment(conn, wine_id: int, comment: str) -> dict:
+    """Append an AI comment to the wine notes; existing text is never modified."""
+    marked = mark_ai_comment(comment)
+    if not marked:
+        raise Invalid("comment is empty", field="comment")
+    with transaction(conn):
+        current = _wine_row(conn, wine_id)["notes"]
+        notes = f"{current.rstrip()}\n\n{marked}" if current else marked
+        conn.execute("UPDATE wines SET notes = ?, updated_at = datetime('now') WHERE id = ?", (notes, wine_id))
+        if not current:
+            _set_meta(conn, "wine", wine_id, "notes", "ai", None, False)
+    return {"wine_id": wine_id, "added": marked}
+
+
+_DESIGNATION_RE = re.compile(r"\(([^)]*)\)")
+
+
+def name_pattern(name: str) -> str:
+    """Shape of a wine name: 'Nom', 'Nom - Cuvée', 'Nom (désignation)', 'Nom - Cuvée (désignation)'…"""
+    has_sep = " - " in name
+    paren = _DESIGNATION_RE.search(name)
+    if has_sep and paren:
+        return "Nom (désignation) - Cuvée" if paren.start() < name.index(" - ") else "Nom - Cuvée (désignation)"
+    if has_sep:
+        return "Nom - Cuvée"
+    if paren:
+        return "Nom (désignation)"
+    return "Nom"
+
+
+def naming_conventions(conn, appellation: str | None = None, producer: str | None = None, limit: int = 40) -> dict:
+    """Existing wine names and their observed shapes, so an AI can name a new wine consistently."""
+    rows = [dict(r) for r in conn.execute("SELECT id, name, appellation, type, producer FROM wines ORDER BY id DESC")]
+    patterns: dict[str, list[str]] = {}
+    designations: dict[str, int] = {}
+    for r in rows:
+        patterns.setdefault(name_pattern(r["name"]), []).append(r["name"])
+        for d in _DESIGNATION_RE.findall(r["name"]):
+            key = d.strip().lower()
+            designations[key] = designations.get(key, 0) + 1
+
+    def score(r):
+        s = 0
+        if appellation and (r["appellation"] or "").lower() == appellation.lower():
+            s += 2
+        if producer and any(w.lower() in r["name"].lower() for w in producer.split() if len(w) > 3):
+            s += 3
+        return -s
+
+    examples = sorted(rows, key=score)[:limit]
+    return {
+        "total": len(rows),
+        "patterns": [{"pattern": p, "count": len(v), "examples": v[:5]}
+                     for p, v in sorted(patterns.items(), key=lambda kv: -len(kv[1]))],
+        "designations_in_parentheses": dict(sorted(designations.items(), key=lambda kv: -kv[1])[:20]),
+        "examples": [{"id": r["id"], "name": r["name"], "appellation": r["appellation"], "type": r["type"]}
+                     for r in examples],
+    }
+
+
+_LEADING_DESIGNATION_RE = re.compile(r"^(domaine|château|chateau|clos|mas|maison|cave|caves|vignobles?)\b", re.I)
+
+
+def naming_warnings(conn, name: str) -> list[str]:
+    """Soft checks of a new name against the shapes used in this cellar (never blocking)."""
+    conv = naming_conventions(conn, limit=0)
+    total = conv["total"]
+    if total < 3:
+        return []
+    counts = {p["pattern"]: p["count"] for p in conv["patterns"]}
+    warnings = []
+    plain_share = counts.get("Nom", 0) / total
+    if name_pattern(name) == "Nom" and plain_share < 0.2:
+        common = conv["patterns"][0]
+        warnings.append(f"only {counts.get('Nom', 0)}/{total} existing names have neither ' - ' nor a designation in "
+                        f"parentheses; usual shape is '{common['pattern']}' (e.g. {common['examples'][:3]})")
+    lead = _LEADING_DESIGNATION_RE.match(name.strip())
+    if lead and conv["designations_in_parentheses"]:
+        all_names = [r["name"] for r in conn.execute("SELECT name FROM wines")]
+        leading_existing = sum(1 for n in all_names if _LEADING_DESIGNATION_RE.match(n))
+        if leading_existing == 0:
+            warnings.append(f"'{lead.group(1)}' is written at the start of the name, but this cellar puts designations "
+                            f"in parentheses after the name, e.g. {list(conv['designations_in_parentheses'])[:3]}")
+    return warnings
+
+
+def find_same_wine(conn, name: str, appellation: str | None, wine_type: str) -> int | None:
+    row = conn.execute(
+        """SELECT id FROM wines WHERE lower(name) = lower(?) AND lower(ifnull(appellation, '')) = lower(?)
+             AND type = ?""", (name.strip(), (appellation or "").strip(), wine_type)).fetchone()
+    return row["id"] if row else None
 
 
 # ---------------------------------------------------------------- vintages & drinking windows

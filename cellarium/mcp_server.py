@@ -26,7 +26,9 @@ INSTRUCTIONS = (
     "Cellarium: personal wine cellar (wines, vintages, bottles, racks and boxes, drinking schedule). "
     "Before writing any wine information call get_enrichment_guide and follow it strictly: write only facts "
     "confirmed by sources you consulted (pass them in `sources`), leave fields empty when unsure, never "
-    "overwrite the owner's data. Stock changes (add/remove/move bottles) only on the owner's explicit request."
+    "overwrite the owner's data. Before creating a wine, call get_naming_conventions and name it like the "
+    "existing wines (typically 'Nom - Cuvée'). Comments written by an AI are automatically marked '[IA date]'. "
+    "Stock changes (add/remove/move bottles) only on the owner's explicit request."
 )
 
 
@@ -124,6 +126,14 @@ def build_mcp(settings: Settings, local_principal: auth.Principal | None = None)
         with db(ctx) as conn:
             return cellar.incomplete_wines(conn, min(limit, 100))
 
+    @mcp.tool(description="How wines are named in this cellar: observed name shapes (e.g. 'Nom - Cuvée', "
+                          "'Nom (désignation)') with counts and examples, closest examples first (same appellation / "
+                          "producer). Call before create_wine and deduce the naming rule from the existing names.")
+    def get_naming_conventions(appellation: str | None = None, producer: str | None = None, limit: int = 40,
+                               ctx: Context | None = None) -> dict:
+        with db(ctx) as conn:
+            return cellar.naming_conventions(conn, appellation, producer, min(limit, 200))
+
     @mcp.tool(description="Rules for completing wine sheets with AI. Read before any write.")
     def get_enrichment_guide(ctx: Context) -> str:
         return guide_text()
@@ -150,8 +160,10 @@ def build_mcp(settings: Settings, local_principal: auth.Principal | None = None)
 
     # ------------------------------------------------------------ write: wine data
 
-    @mcp.tool(description="Create a wine sheet. Use only for a wine the owner asked to add. Descriptive fields "
-                          "need `sources` unless provided_by_user=true (values dictated by the owner).")
+    @mcp.tool(description="Create a wine sheet. Use only for a wine the owner asked to add. First call "
+                          "get_naming_conventions and build `name` the way existing wines are named (usually "
+                          "'Nom - Cuvée', designation such as '(domaine de)' placed like in the examples). "
+                          "Descriptive fields need `sources` unless provided_by_user=true (values dictated by the owner).")
     def create_wine(name: str, type: str, appellation: str | None = None, producer: str | None = None,
                     region: str | None = None, country: str | None = None, grapes: str | None = None,
                     description: str | None = None, serving_temp: str | None = None,
@@ -164,8 +176,25 @@ def build_mcp(settings: Settings, local_principal: auth.Principal | None = None)
         if descriptive and not provided_by_user and not sources:
             raise ToolError(f"sources are required for {descriptive} (or set provided_by_user=true)")
         with db(ctx, write=True) as conn:
+            existing = cellar.find_same_wine(conn, name, appellation, type)
+            if existing:
+                raise ToolError(f"wine already exists (id {existing}): use add_bottles on it instead of creating a duplicate")
+            warnings = cellar.naming_warnings(conn, name)
             wine_id = cellar.create_wine(conn, data, origin="user" if provided_by_user else "ai", sources=sources)
-            return cellar.get_wine(conn, wine_id)
+            wine = cellar.get_wine(conn, wine_id)
+        wine["naming"] = {"pattern": cellar.name_pattern(name)}
+        if warnings:
+            wine["naming"]["warnings"] = warnings + [
+                "tell the owner; rename with update_wine_info(fields={'name': ...}, confirmed_by_user=true) if they agree"]
+        return wine
+
+    @mcp.tool(description="Add a comment to a wine sheet (tasting impression, advice, information found). The text "
+                          "is appended to the notes, automatically prefixed with '[IA date]' to show it was written "
+                          "by an AI; existing notes are never modified. Cite the source inside the comment when the "
+                          "comment states facts.")
+    def add_wine_comment(wine_id: int, comment: str, ctx: Context | None = None) -> dict:
+        with db(ctx, write=True) as conn:
+            return cellar.append_wine_comment(conn, wine_id, comment)
 
     @mcp.tool(description="Complete descriptive fields of a wine sheet (producer, region, country, grapes, "
                           "description, serving_temp, food_pairing). Requires sources. Fields entered by the owner "
@@ -203,7 +232,8 @@ def build_mcp(settings: Settings, local_principal: auth.Principal | None = None)
     # ------------------------------------------------------------ write: stock (owner's explicit request only)
 
     @mcp.tool(description="Add bottles to the cellar (a purchase). Only on the owner's explicit request. "
-                          "storage_id: a rack fills the first free slots, a box holds them loosely, none = unplaced.")
+                          "storage_id: a rack fills the first free slots, a box holds them loosely, none = unplaced. "
+                          "`comment` is stored with an '[IA date]' marker.")
     def add_bottles(wine_id: int, quantity: int, year: int = 0, volume_cl: float = 75,
                     unit_price: float | None = None, purchase_date: str | None = None,
                     supplier: str | None = None, comment: str | None = None,
@@ -211,10 +241,11 @@ def build_mcp(settings: Settings, local_principal: auth.Principal | None = None)
         with db(ctx, write=True) as conn:
             return cellar.add_bottles(conn, wine_id, year=_year(year), quantity=quantity, volume_cl=volume_cl,
                                       unit_price=unit_price, purchase_date=purchase_date, supplier=supplier,
-                                      comment=comment, storage_id=storage_id)
+                                      comment=cellar.mark_ai_comment(comment), storage_id=storage_id)
 
     @mcp.tool(description="Take bottles out of the cellar (drunk, gifted, lost). Give bottle_ids, or wine_id + year "
-                          "+ count (loose bottles are taken first). Only on the owner's explicit request.")
+                          "+ count (loose bottles are taken first). Only on the owner's explicit request. `note` is stored "
+                          "with an '[IA date]' marker.")
     def remove_bottles(bottle_ids: list[int] | None = None, wine_id: int | None = None, year: int = 0,
                        count: int = 1, status: Literal["drunk", "gifted", "lost"] = "drunk",
                        note: str | None = None, date: str | None = None, ctx: Context | None = None) -> list[dict]:
@@ -225,6 +256,7 @@ def build_mcp(settings: Settings, local_principal: auth.Principal | None = None)
                 bottle_ids = [b["id"] for b in cellar.pick_bottles(conn, wine_id, _year(year), count)]
                 if len(bottle_ids) < count:
                     raise ToolError(f"only {len(bottle_ids)} bottle(s) of this vintage in the cellar")
+            note = cellar.mark_ai_comment(note)
             return [cellar.remove_bottle(conn, bid, status, date, note) for bid in bottle_ids]
 
     @mcp.tool(description="Move a bottle: storage_id + row/col for a rack (1-based), storage_id alone for a box or "
@@ -236,9 +268,4 @@ def build_mcp(settings: Settings, local_principal: auth.Principal | None = None)
 
     return mcp
 
-
-def tool_names(mcp: MCPServer) -> list[str]:  # used by tests and docs
-    import asyncio
-
-    return [t.name for t in asyncio.run(mcp.list_tools())]
 

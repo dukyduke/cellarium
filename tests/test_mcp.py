@@ -45,7 +45,7 @@ def test_tools_listed(mcp):
             resources = await client.list_resources()
             return [t.name for t in tools.tools], [p.name for p in prompts.prompts], [str(r.uri) for r in resources.resources]
     tools, prompts, resources = asyncio.run(run())
-    for name in ("cellar_summary", "search_wines", "get_wine", "find_bottles", "drinking_schedule", "list_storages",
+    for name in ("get_naming_conventions", "add_wine_comment", "cellar_summary", "search_wines", "get_wine", "find_bottles", "drinking_schedule", "list_storages",
                  "get_history", "list_wines_to_enrich", "get_enrichment_guide", "create_wine", "update_wine_info",
                  "set_drinking_window", "add_bottles", "remove_bottles", "move_bottle"):
         assert name in tools
@@ -150,3 +150,43 @@ def test_no_principal_is_refused(settings, conn):
     mcp = build_mcp(settings)  # no local principal and no HTTP headers
     res = call(mcp, "cellar_summary")
     assert res.is_error and "authentication" in res.content[0].text
+
+
+def test_naming_conventions_and_duplicates(mcp, conn):
+    for name, app in [("Merlet (domaine de)", "Pessac-Léognan"), ("Cézin - Aunis (domaine de)", "Coteaux du Loir"),
+                      ("Cézin - Blanc (domaine de)", "Coteaux du Loir"), ("Ampelhus - Rivairenc", "Languedoc"),
+                      ("Ampelhus - Carignan-Terret", "Languedoc"), ("Exorde - Saint-Joseph", "Saint-Joseph")]:
+        cellar.create_wine(conn, {"name": name, "appellation": app, "type": "red"})
+    conv = payload(call(mcp, "get_naming_conventions", {"appellation": "Coteaux du Loir", "producer": "Cézin"}))
+    shapes = {p["pattern"]: p["count"] for p in conv["patterns"]}
+    assert shapes == {"Nom - Cuvée": 3, "Nom - Cuvée (désignation)": 2, "Nom (désignation)": 1}
+    assert conv["designations_in_parentheses"] == {"domaine de": 3}
+    assert conv["examples"][0]["name"].startswith("Cézin")
+    # duplicate refused, odd shape flagged
+    dup = call(mcp, "create_wine", {"name": "Ampelhus - Rivairenc", "appellation": "Languedoc", "type": "red",
+                                    "provided_by_user": True})
+    assert dup.is_error and "already exists" in dup.content[0].text
+    odd = payload(call(mcp, "create_wine", {"name": "Domaine Truc cuvée Machin", "type": "red", "provided_by_user": True}))
+    assert odd["naming"]["pattern"] == "Nom" and len(odd["naming"]["warnings"]) == 3  # shape + leading 'Domaine' + hint
+    ok = payload(call(mcp, "create_wine", {"name": "Cézin - Rouge (domaine de)", "appellation": "Coteaux du Loir",
+                                          "type": "red", "provided_by_user": True}))
+    assert "warnings" not in ok["naming"]
+
+
+def test_ai_comments_are_marked(mcp, conn):
+    wid = cellar.create_wine(conn, {"name": "Les 3 Clochers", "type": "sweet", "notes": "Cadeau de Papy"})
+    res = payload(call(mcp, "add_wine_comment", {"wine_id": wid, "comment": "Superbe sur un roquefort."}))
+    assert res["added"].startswith("[IA ") and res["added"].endswith("Superbe sur un roquefort.")
+    wine = cellar.get_wine(conn, wid)
+    assert wine["notes"].startswith("Cadeau de Papy\n\n[IA ")
+    assert wine["meta"]["notes"]["origin"] == "user"  # owner's notes keep their provenance
+    # notes cannot be rewritten through update_wine_info
+    assert call(mcp, "update_wine_info", {"wine_id": wid, "fields": {"notes": "x"}, "sources": ["https://a"]}).is_error
+    added = payload(call(mcp, "add_bottles", {"wine_id": wid, "quantity": 2, "comment": "Acheté au salon"}))
+    lot = cellar.get_wine(conn, wid)["lots"][0]
+    assert lot["id"] == added["lot_id"] and lot["comment"].startswith("[IA ") and lot["comment"].endswith("Acheté au salon")
+    out = payload(call(mcp, "remove_bottles", {"wine_id": wid, "count": 1, "note": "Bu avec Jeanne"}))
+    assert out[0]["out_note"].startswith("[IA ")
+    assert cellar.history(conn)[0]["note"].startswith("[IA ")
+    # already-marked text is not double-marked
+    assert cellar.mark_ai_comment("[IA 2026-01-01] déjà") == "[IA 2026-01-01] déjà"

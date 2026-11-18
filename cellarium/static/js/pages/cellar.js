@@ -1,7 +1,7 @@
 // "Ma cave" with four modes: sortable list, drinking schedule, graphical plan, history.
 import {
   api, canWrite, clear, confirmDialog, dialog, emptyState, errorToast, fmtDate, fmtPrice, fmtVolume, fmtYear, h, icon,
-  locationLabel, normalize, phaseBadge, roman, state, t, toast, typeDot, typeLabel, windowText,
+  locationLabel, normalize, phaseBadge, richText, roman, state, t, toast, typeDot, typeLabel, windowText,
 } from '../core.js';
 import { bottleDialog } from './bottles.js';
 
@@ -349,7 +349,7 @@ async function renderHistory(body, query) {
             m.kind === 'move' || m.to_loc ? ` · ${t('history.to', { loc: m.to_loc || t('plan.unplaced_short') })}` : '',
             m.actor ? ` · ${m.actor}` : '',
           ].join('')),
-          m.note ? h('small.block.note', m.note) : null),
+          m.note ? h('small.block.note', richText(m.note)) : null),
         canWrite() && m.kind === 'out' && m.bottle_id ? h('button.btn.small', {
           type: 'button', title: t('history.restore'),
           onclick: async () => {

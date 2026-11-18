@@ -195,6 +195,18 @@ export function phaseBadge(phase, overdue) {
   return h(`span.badge.phase-${phase}`, overdue ? t('phase.overdue') : t(`phase.${phase}`));
 }
 
+/** Text with AI-written parts: lines starting with "[IA 2026-11-18]" get an "IA" badge. */
+export function richText(text) {
+  if (!text) return null;
+  return String(text).split('\n').map((line, i) => {
+    const m = line.match(/^\[IA(?: (\d{4}-\d{2}-\d{2}))?\]\s*/);
+    const br = i ? h('br') : null;
+    if (!m) return [br, line];
+    const title = m[1] ? t('wine.ai_comment_on', { date: fmtDate(m[1]) }) : t('wine.ai_comment');
+    return [br, h('span.ai-badge', { title, 'aria-label': title }, icon('ai'), ' IA'), ' ', line.slice(m[0].length)];
+  });
+}
+
 export const normalize = (s) => (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
 
 // ------------------------------------------------------------------ feedback
