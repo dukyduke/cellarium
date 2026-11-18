@@ -1060,6 +1060,7 @@ def import_json(conn, payload: dict, images_dir=None) -> dict:
         import base64
         from pathlib import Path
 
+        Path(images_dir).mkdir(parents=True, exist_ok=True)  # fresh instance: no image uploaded yet
         for name, b64 in (payload.get("images") or {}).items():
             if not re.fullmatch(r"[A-Za-z0-9_.-]+\.(jpg|png|webp|gif)", name):
                 continue

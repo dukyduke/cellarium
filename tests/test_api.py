@@ -202,7 +202,8 @@ def test_backup_embeds_images_and_restores(client, app):
     name = client.post(f"/api/wines/{wid}/image", files={"file": ("x.png", PNG, "image/png")}).json()["image"]
     dump = client.get("/api/export.json").json()
     assert name in dump["images"]
-    (app.state.settings.images_dir / name).unlink()
+    import shutil
+    shutil.rmtree(app.state.settings.images_dir)  # restore onto a fresh instance must recreate the folder
     import json as _json
     r = client.post("/api/import/restore", files={"file": ("b.json", _json.dumps(dump).encode(), "application/json")},
                     data={"confirm": "REPLACE"})
