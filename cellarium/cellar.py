@@ -1018,17 +1018,30 @@ def find_bottles(conn, q: str) -> list[dict]:
 
 # ---------------------------------------------------------------- export
 
-def export_json(conn) -> dict:
+def export_json(conn, images_dir=None) -> dict:
+    """Full backup. With images_dir, wine images are embedded (base64) so the file is self-contained."""
     tables = ("wine_types", "wines", "vintages", "field_meta", "storages", "lots", "bottles", "movements")
-    return {
+    out = {
         "format": "cellarium",
         "version": conn.execute("PRAGMA user_version").fetchone()[0],
         "exported_at": dt.datetime.now().isoformat(timespec="seconds"),
         "data": {t: [dict(r) for r in conn.execute(f"SELECT * FROM {t}")] for t in tables},
     }
+    if images_dir is not None:
+        import base64
+        from pathlib import Path
+
+        images = {}
+        for row in out["data"]["wines"]:
+            name = row.get("image")
+            path = Path(images_dir) / name if name else None
+            if path and path.is_file():
+                images[name] = base64.b64encode(path.read_bytes()).decode()
+        out["images"] = images
+    return out
 
 
-def import_json(conn, payload: dict) -> dict:
+def import_json(conn, payload: dict, images_dir=None) -> dict:
     """Restore a full export (replaces the cellar content; keeps accounts and tokens)."""
     if payload.get("format") != "cellarium":
         raise Invalid("not a cellarium export")
@@ -1042,4 +1055,16 @@ def import_json(conn, payload: dict) -> dict:
                 cols = list(row)
                 conn.execute(f"INSERT INTO {t} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
                              [row[c] for c in cols])
-    return {t: len(data.get(t, [])) for t in order}
+    restored_images = 0
+    if images_dir is not None:
+        import base64
+        from pathlib import Path
+
+        for name, b64 in (payload.get("images") or {}).items():
+            if not re.fullmatch(r"[A-Za-z0-9_.-]+\.(jpg|png|webp|gif)", name):
+                continue
+            (Path(images_dir) / name).write_bytes(base64.b64decode(b64))
+            restored_images += 1
+    counts = {t: len(data.get(t, [])) for t in order}
+    counts["images"] = restored_images
+    return counts

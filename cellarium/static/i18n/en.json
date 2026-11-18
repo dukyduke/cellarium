@@ -70,7 +70,7 @@
  "common.saved": "Saved.",
  "error.generic": "Something went wrong.",
  "export.csv": "Export CSV",
- "export.intro": "The CSV lists the cellar (re-importable); the JSON is a full backup (wines, bottles, storages, history). Images live in the server data folder.",
+ "export.intro": "The CSV lists the cellar (re-importable); the JSON is a full backup (wines, bottles, storage, history and images), restorable below.",
  "export.json": "JSON backup",
  "export.title": "Export",
  "history.all": "All movements",

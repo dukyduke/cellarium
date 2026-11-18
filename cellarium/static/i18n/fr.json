@@ -70,7 +70,7 @@
  "common.saved": "Enregistré.",
  "error.generic": "Une erreur est survenue.",
  "export.csv": "Exporter en CSV",
- "export.intro": "Le CSV liste la cave (réimportable) ; le JSON est une sauvegarde complète (fiches, bouteilles, rangements, historique). Les images sont dans le dossier de données du serveur.",
+ "export.intro": "Le CSV liste la cave (réimportable) ; le JSON est une sauvegarde complète (fiches, bouteilles, rangements, historique et images), restaurable ci-dessous.",
  "export.json": "Sauvegarde JSON",
  "export.title": "Exporter",
  "history.all": "Tous les mouvements",

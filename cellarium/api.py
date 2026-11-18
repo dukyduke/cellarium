@@ -482,14 +482,15 @@ def import_commit(body: CommitBody, conn=Depends(get_conn)):
 
 
 @router.post("/import/restore")
-async def import_restore(file: UploadFile = File(...), confirm: str = Form(...), conn=Depends(get_conn)):
+async def import_restore(file: UploadFile = File(...), confirm: str = Form(...), conn=Depends(get_conn),
+                         settings: Settings = Depends(get_settings)):
     if confirm != "REPLACE":
         raise HTTPException(400, "confirm must be REPLACE")
     try:
         payload = json.loads(await file.read())
     except ValueError:
         raise HTTPException(400, "invalid JSON") from None
-    return cellar.import_json(conn, payload)
+    return cellar.import_json(conn, payload, settings.images_dir)
 
 
 @router.get("/export.csv")
@@ -499,6 +500,6 @@ def export_csv(conn=Depends(get_conn)):
 
 
 @router.get("/export.json")
-def export_json(conn=Depends(get_conn)):
-    return JSONResponse(cellar.export_json(conn),
+def export_json(conn=Depends(get_conn), settings: Settings = Depends(get_settings)):
+    return JSONResponse(cellar.export_json(conn, settings.images_dir),
                         headers={"Content-Disposition": 'attachment; filename="cellarium.json"'})

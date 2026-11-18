@@ -195,3 +195,16 @@ def test_first_run_setup(tmp_path):
         assert c.get("/api/summary").status_code == 200
         assert c.get("/api/me").json()["role"] == "owner"
         assert c.post("/api/setup", json=body).status_code == 409
+
+
+def test_backup_embeds_images_and_restores(client, app):
+    wid = client.post("/api/wines", json={"name": "Avec image", "type": "red"}).json()["id"]
+    name = client.post(f"/api/wines/{wid}/image", files={"file": ("x.png", PNG, "image/png")}).json()["image"]
+    dump = client.get("/api/export.json").json()
+    assert name in dump["images"]
+    (app.state.settings.images_dir / name).unlink()
+    import json as _json
+    r = client.post("/api/import/restore", files={"file": ("b.json", _json.dumps(dump).encode(), "application/json")},
+                    data={"confirm": "REPLACE"})
+    assert r.status_code == 200 and r.json()["images"] == 1
+    assert client.get(f"/api/media/{name}").content == PNG
