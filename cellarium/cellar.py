@@ -136,9 +136,10 @@ def location_dict(row: sqlite3.Row | dict) -> dict | None:
     return loc
 
 
-def location_label(loc: dict | None) -> str:
+def location_label(loc: dict | None) -> str | None:
+    """'Principale 2-IV' for a rack slot, the box name for a box, None when unplaced."""
     if not loc:
-        return "unplaced"
+        return None
     if loc.get("kind") == "rack" and loc.get("row"):
         return f"{loc['storage_name']} {loc['row']}-{roman(loc['col'])}"
     return str(loc["storage_name"])
@@ -736,7 +737,7 @@ def move_bottle(conn, bottle_id: int, storage_id: Any, row: Any = None, col: Any
         b = _bottle(conn, bottle_id)
         if b["status"] != "in_cellar":
             raise Conflict("bottle is not in the cellar")
-        target_label = "unplaced"
+        target_label = None
         swapped = None
         if storage_id:
             storage = _storage(conn, storage_id)

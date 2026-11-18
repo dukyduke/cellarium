@@ -31,7 +31,7 @@ def test_csrf_header_required_for_cookie_writes(client):
 
 def test_index_and_static(anon):
     assert anon.get("/").status_code == 200
-    assert anon.get("/static/app.js").status_code == 200
+    assert anon.get("/static/js/main.js").status_code == 200
     assert anon.get("/static/i18n/fr.json").status_code == 200
 
 

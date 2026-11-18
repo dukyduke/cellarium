@@ -12,6 +12,8 @@ import csv
 import io
 import re
 import unicodedata
+import xml.etree.ElementTree as ET
+import zipfile
 from typing import Any
 
 from . import cellar
@@ -92,6 +94,48 @@ def decode(raw: bytes) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
+def read_xlsx(raw: bytes) -> list[list[str]]:
+    """First worksheet of an .xlsx file as rows of strings (stdlib only: zip + XML)."""
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    try:
+        book = zipfile.ZipFile(io.BytesIO(raw))
+        shared = []
+        if "xl/sharedStrings.xml" in book.namelist():
+            for si in ET.fromstring(book.read("xl/sharedStrings.xml")).findall("m:si", ns):
+                shared.append("".join(t.text or "" for t in si.iter(f"{{{ns['m']}}}t")))
+        sheets = sorted(n for n in book.namelist() if re.fullmatch(r"xl/worksheets/sheet\d+\.xml", n))
+        sheet = ET.fromstring(book.read(sheets[0]))
+    except (zipfile.BadZipFile, KeyError, IndexError, ET.ParseError) as exc:
+        raise cellar.Invalid(f"unreadable xlsx file: {exc}") from None
+    rows = []
+    for row in sheet.iter(f"{{{ns['m']}}}row"):
+        cells: dict[int, str] = {}
+        for c in row.findall("m:c", ns):
+            ref = re.match(r"([A-Z]+)", c.get("r", "A"))
+            col = 0
+            for ch in ref.group(1) if ref else "A":
+                col = col * 26 + (ord(ch) - 64)
+            kind, v = c.get("t"), c.find("m:v", ns)
+            if kind == "s" and v is not None:
+                value = shared[int(v.text)]
+            elif kind == "inlineStr":
+                value = "".join(t.text or "" for t in c.iter(f"{{{ns['m']}}}t"))
+            else:
+                value = v.text if v is not None and v.text else ""
+                if re.fullmatch(r"-?\d+\.0", value):
+                    value = value[:-2]
+            cells[col - 1] = value
+        if cells:
+            rows.append([cells.get(i, "") for i in range(max(cells) + 1)])
+    return rows
+
+
+def parse_file(raw: bytes, filename: str = "", extra_types: list[dict] | None = None) -> dict:
+    if filename.lower().endswith(".xlsx") or raw[:2] == b"PK":
+        return parse_rows(read_xlsx(raw), extra_types)
+    return parse_csv(raw, extra_types)
+
+
 def parse_csv(raw: bytes | str, extra_types: list[dict] | None = None) -> dict:
     text = decode(raw) if isinstance(raw, bytes) else raw.lstrip("\ufeff")
     sample = text[:4096]
@@ -99,11 +143,13 @@ def parse_csv(raw: bytes | str, extra_types: list[dict] | None = None) -> dict:
         dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
     except csv.Error:
         dialect = csv.excel
-    reader = csv.reader(io.StringIO(text), dialect)
-    rows = list(reader)
+    return parse_rows(list(csv.reader(io.StringIO(text), dialect)), extra_types)
+
+
+def parse_rows(rows: list[list[str]], extra_types: list[dict] | None = None) -> dict:
     if not rows:
         return {"format": "empty", "columns": {}, "rows": [], "unknown_columns": []}
-    header = rows[0]
+    header = [h.lstrip("\ufeff") for h in rows[0]]
     mapping: dict[int, str] = {}
     unknown = []
     for i, h in enumerate(header):
@@ -241,7 +287,7 @@ def export_csv(conn) -> str:
     plan = cellar.plan(conn)
     where: dict[tuple, list[str]] = {}
     for b in [b for s in plan["storages"] for b in s["bottles"]] + plan["unplaced"]:
-        where.setdefault((b["vintage_id"], b["volume_cl"]), []).append(cellar.location_label(b["location"]))
+        where.setdefault((b["vintage_id"], b["volume_cl"]), []).append(cellar.location_label(b["location"]) or "-")
     for r in cellar.cellar_rows(conn):
         locs = sorted(set(where.get((r["vintage_id"], r["volume_cl"]), [])))
         writer.writerow([r["appellation"] or "", r["name"], r["year"] or 0, labels.get(r["type"], r["type"]),

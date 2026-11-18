@@ -1,0 +1,9 @@
+{
+  "name": "Cellarium",
+  "short_name": "Cellarium",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#faf7f4",
+  "theme_color": "#5b1a32",
+  "icons": [{ "src": "/static/logo.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

@@ -58,3 +58,51 @@ def test_real_vitiplace_sample_shape():
     parsed = importers.parse_csv(head.encode())
     assert parsed["format"] == "vitiplace"
     assert parsed["rows"][0]["name"] == "Picourneau (château)"
+
+
+def _xlsx(rows):
+    """Minimal xlsx (shared strings + numbers) like ONLYOFFICE/Excel produce."""
+    import io
+    import zipfile
+    strings, xml_rows = [], []
+    for r, row in enumerate(rows, start=1):
+        cells = []
+        for c, value in enumerate(row):
+            ref = f"{chr(65 + c)}{r}"
+            if isinstance(value, (int, float)):
+                cells.append(f'<c r="{ref}"><v>{float(value)}</v></c>')
+            else:
+                strings.append(value)
+                cells.append(f'<c r="{ref}" t="s"><v>{len(strings) - 1}</v></c>')
+        xml_rows.append(f'<row r="{r}">{"".join(cells)}</row>')
+    ns = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("xl/sharedStrings.xml", f'<sst {ns}>' + "".join(f"<si><t>{s}</t></si>" for s in strings) + "</sst>")
+        z.writestr("xl/worksheets/sheet1.xml", f'<worksheet {ns}><sheetData>{"".join(xml_rows)}</sheetData></worksheet>')
+    return buf.getvalue()
+
+
+def test_parse_xlsx(conn):
+    raw = _xlsx([["Appellation", "Nom", "Millésimé", "Robe", "Quantité"],
+                 ["Alsace", "Achillée - Gewurztraminer Hespéridé", 2021, "Blanc", 1],
+                 ["Champagne", "Brut", 0, "Effervescent", 4]])
+    parsed = importers.parse_file(raw, "liste_cave.xlsx", cellar.list_types(conn))
+    assert parsed["format"] == "vitiplace"
+    assert [(r["year"], r["quantity"], r["type"]) for r in parsed["rows"]] == [(2021, 1, "white"), (None, 4, "sparkling")]
+
+
+def test_real_files_if_present(conn):
+    """Optional check against the maintainer's real exports (skipped elsewhere)."""
+    import pathlib
+
+    import pytest
+    csv_path = pathlib.Path.home() / "Documents" / "liste_cave.csv"
+    xlsx_path = pathlib.Path.home() / "Documents" / "liste_cave.xlsx"
+    if not csv_path.exists():
+        pytest.skip("no local sample")
+    a = importers.parse_file(csv_path.read_bytes(), csv_path.name)
+    assert a["format"] == "vitiplace" and not any(r["errors"] for r in a["rows"])
+    if xlsx_path.exists():
+        b = importers.parse_file(xlsx_path.read_bytes(), xlsx_path.name)
+        assert [(r["name"], r["year"], r["quantity"]) for r in a["rows"]] == [(r["name"], r["year"], r["quantity"]) for r in b["rows"]]

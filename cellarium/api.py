@@ -467,7 +467,7 @@ async def import_preview(file: UploadFile = File(...), conn=Depends(get_conn)):
             raise HTTPException(400, "invalid JSON") from None
         counts = {t: len(v) for t, v in (payload.get("data") or {}).items()}
         return {"format": "cellarium-json", "counts": counts, "rows": []}
-    return importers.parse_csv(raw, cellar.list_types(conn))
+    return importers.parse_file(raw, file.filename or "", cellar.list_types(conn))
 
 
 class CommitBody(BaseModel):

@@ -1,0 +1,28 @@
+# /etc/systemd/system/cellarium.service — run Cellarium from a git checkout without Docker.
+# Install:
+#   sudo useradd --system --home /opt/cellarium cellarium
+#   sudo git clone https://github.com/dukyduke/cellarium /opt/cellarium
+#   cd /opt/cellarium && sudo python3 -m venv .venv && sudo .venv/bin/pip install .
+#   sudo cp .env.example .env   # then edit
+#   sudo chown -R cellarium: /opt/cellarium
+#   sudo cp deploy/cellarium.service /etc/systemd/system/ && sudo systemctl enable --now cellarium
+#   journalctl -u cellarium   # shows the first-start setup code
+[Unit]
+Description=Cellarium wine cellar
+After=network.target
+
+[Service]
+Type=simple
+User=cellarium
+WorkingDirectory=/opt/cellarium
+EnvironmentFile=-/opt/cellarium/.env
+ExecStart=/opt/cellarium/.venv/bin/python -m cellarium serve
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/cellarium/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

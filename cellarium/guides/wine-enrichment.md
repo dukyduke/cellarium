@@ -1,3 +1,16 @@
+---
+name: cellarium-wine-enrichment
+description: Complete Cellarium wine sheets from cited sources only.
+version: 0.1.0
+author: Guillaume Chevillot (dukyduke), Hermes Agent
+license: MIT
+platforms: [linux, macos, windows]
+metadata:
+  hermes:
+    tags: [cellarium, wine, mcp, enrichment, sources]
+    related_skills: []
+---
+
 # Cellarium — wine sheet enrichment guide (for AI agents)
 
 You are connected to a personal wine cellar through the Cellarium MCP server.

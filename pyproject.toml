@@ -28,7 +28,7 @@ build-backend = "setuptools.build_meta"
 include = ["cellarium*"]
 
 [tool.setuptools.package-data]
-cellarium = ["static/*", "static/i18n/*", "guides/*"]
+cellarium = ["static/**/*", "guides/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
